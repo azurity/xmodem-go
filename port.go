@@ -528,54 +528,63 @@ func parseFileInfo(buf []byte) (*File, error) {
 	return ret, nil
 }
 
+type Receiver func(file File)
+
 // Receive receive file/files for any config.
-func (m *Modem) Receive() ([]File, error) {
+func (m *Modem) Receive(fn Receiver) error {
 	atomic.StoreInt64(m.state, 1)
-	ret, err := m.receive()
+	err := m.receive(fn)
 	m.finishChan <- true
-	return ret, err
+	return err
 }
 
-func (m *Modem) receive() ([]File, error) {
-	ret := []File{}
+func (m *Modem) receive(fn Receiver) error {
+	//ret := []File{}
 	for {
 		workMode, err := m.tryWorkMode()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		file := &File{}
 		if m.Config.fn&ModemFnBatch != 0 {
 			data, err := m.receivePack(0, workMode)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			file, err = parseFileInfo(data)
 			if err != nil {
-				return nil, err
+				return err
 			}
 		}
 		index := byte(1)
-		body := &bytes.Buffer{}
-		file.Body = body
+		//body := &bytes.Buffer{}
+		br, bw := io.Pipe()
+		file.Body = br
+		go func() {
+			fn(*file)
+		}()
+		writed := int64(0)
 		for {
 			data, err := m.receivePack(index, workMode)
 			if err != nil && err != io.EOF {
-				return nil, err
+				bw.Close()
+				return err
 			}
 			index += 1
-			body.Write(data)
+			if file.Length > 0 && int64(len(data)) > file.Length-writed {
+				data = data[:file.Length-writed]
+			}
+			writed += int64(len(data))
+			bw.Write(data)
 			if err == io.EOF {
 				m.transportW.Write([]byte{charACK})
 				break
 			}
 		}
-		if file.Length > 0 {
-			body.Truncate(int(file.Length))
-		}
-		ret = append(ret, *file)
+		bw.Close()
 		if m.Config.fn&ModemFnBatch == 0 {
 			break
 		}
 	}
-	return ret, nil
+	return nil
 }

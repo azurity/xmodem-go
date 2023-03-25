@@ -68,19 +68,15 @@ func main() {
 	m, _, _ := xmodem.NewModem(conf, os.Stdin, os.Stdout)
 
 	if *recv {
-		rFiles, err := m.Receive()
-		if err != nil {
-			log.Panicln(err)
-		}
-		if *xMode {
-			f, err := os.OpenFile(files[0], os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fs.ModePerm)
-			if err != nil {
-				log.Panicln(err)
-			}
-			defer f.Close()
-			io.Copy(f, rFiles[0].Body)
-		} else {
-			for _, file := range rFiles {
+		err := m.Receive(func(file xmodem.File) {
+			if *xMode {
+				f, err := os.OpenFile(files[0], os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fs.ModePerm)
+				if err != nil {
+					log.Panicln(err)
+				}
+				defer f.Close()
+				io.Copy(f, file.Body)
+			} else {
 				if file.Path == "" {
 					log.Panicln("recv blank path")
 				}
@@ -89,11 +85,14 @@ func main() {
 				if err != nil {
 					log.Panicln(err)
 				}
-				io.Copy(f, rFiles[0].Body)
+				io.Copy(f, file.Body)
 				f.Close()
 				os.Chmod(p, file.Mode)
 				os.Chtimes(p, time.Now(), file.ModTime)
 			}
+		})
+		if err != nil {
+			log.Panicln(err)
 		}
 	}
 	if *send {
