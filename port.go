@@ -271,7 +271,7 @@ func (m *Modem) sendEOT() error {
 	return nil
 }
 
-func (m *Modem) sendBreak() error {
+func (m *Modem) SendBreak() error {
 	if m.Config.fn&ModemFnCANCAN != 0 {
 		m.transportW.Write([]byte{charCAN, charCAN})
 	} else {
@@ -285,7 +285,7 @@ func (m *Modem) SendBytes(file io.Reader) error {
 	atomic.StoreInt64(m.state, 1)
 	err := m.sendBytes(file)
 	if err != nil && err != io.EOF && err != TooLongFileInfo && err != IOCan {
-		m.sendBreak()
+		m.SendBreak()
 	}
 	m.finishChan <- true
 	return err
@@ -312,7 +312,7 @@ func (m *Modem) SendList(files []File) error {
 	atomic.StoreInt64(m.state, 1)
 	err := m.sendList(files)
 	if err != nil && err != io.EOF && err != TooLongFileInfo {
-		m.sendBreak()
+		m.SendBreak()
 	}
 	m.finishChan <- true
 	return err
