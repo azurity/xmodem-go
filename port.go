@@ -67,7 +67,7 @@ type Modem struct {
 	transportW io.Writer
 	finishChan chan bool
 	state      *int64
-	config     ModemConfig
+	Config     ModemConfig
 }
 
 // NewModem create a modem adapter over a (reader, writer), return the modem and a filtered (reader, writer).
@@ -141,7 +141,7 @@ func NewModem(config ModemConfig, reader io.Reader, writer io.Writer) (*Modem, i
 		transportW: writer,
 		finishChan: finishChan,
 		state:      modemState,
-		config:     config,
+		Config:     config,
 	}
 
 	return modem, rr, ww
@@ -190,7 +190,7 @@ func (m *Modem) waitWorkMode() (byte, error) {
 		if err != nil {
 			return 0, err
 		}
-		if rBuf[0] == charNAK || (m.config.fn&ModemFnCRC != 0 && rBuf[0] == charCRC) || (m.config.fn&ModemFnG != 0 && rBuf[0] == charG) {
+		if rBuf[0] == charNAK || (m.Config.fn&ModemFnCRC != 0 && rBuf[0] == charCRC) || (m.Config.fn&ModemFnG != 0 && rBuf[0] == charG) {
 			workMode = rBuf[0]
 			break
 		}
@@ -272,7 +272,7 @@ func (m *Modem) sendEOT() error {
 }
 
 func (m *Modem) sendBreak() error {
-	if m.config.fn&ModemFnCANCAN != 0 {
+	if m.Config.fn&ModemFnCANCAN != 0 {
 		m.transportW.Write([]byte{charCAN, charCAN})
 	} else {
 		return m.sendEOT()
@@ -319,10 +319,10 @@ func (m *Modem) SendList(files []File) error {
 }
 
 func (m *Modem) sendList(files []File) error {
-	if m.config.mode == XModem {
+	if m.Config.mode == XModem {
 		return WrongModemType
 	}
-	if m.config.mode == YModem && (m.config.fn&ModemFnBatch) == 0 {
+	if m.Config.mode == YModem && (m.Config.fn&ModemFnBatch) == 0 {
 		return WrongModemType
 	}
 	for _, file := range files {
@@ -336,7 +336,7 @@ func (m *Modem) sendList(files []File) error {
 		info = append(info, 0)
 		// check length legal
 		tooLong := false
-		if len(info) > 128 && (m.config.fn&ModemFn1k) == 0 {
+		if len(info) > 128 && (m.Config.fn&ModemFn1k) == 0 {
 			tooLong = true
 		}
 		if len(info) > 1024 {
@@ -374,7 +374,7 @@ func (m *Modem) sendList(files []File) error {
 
 func (m *Modem) sendBuffer(file io.Reader, maxsize int64, workMode byte) error {
 	buf := make([]byte, 128)
-	if m.config.fn&ModemFn1k != 0 {
+	if m.Config.fn&ModemFn1k != 0 {
 		buf = make([]byte, 1024)
 	}
 	total := 0
@@ -410,7 +410,7 @@ func (m *Modem) sendBuffer(file io.Reader, maxsize int64, workMode byte) error {
 
 func (m *Modem) tryWorkMode() (byte, error) {
 	var err error
-	if m.config.fn&ModemFnG != 0 {
+	if m.Config.fn&ModemFnG != 0 {
 		for i := 0; i < 3; i++ {
 			m.transportW.Write([]byte{charG})
 			_, err = m.transportR.Peek(1)
@@ -423,7 +423,7 @@ func (m *Modem) tryWorkMode() (byte, error) {
 			}
 		}
 	}
-	if m.config.fn&ModemFnCRC != 0 {
+	if m.Config.fn&ModemFnCRC != 0 {
 		for i := 0; i < 3; i++ {
 			m.transportW.Write([]byte{charCRC})
 			_, err = m.transportR.Peek(1)
@@ -544,7 +544,7 @@ func (m *Modem) receive() ([]File, error) {
 			return nil, err
 		}
 		file := &File{}
-		if m.config.fn&ModemFnBatch != 0 {
+		if m.Config.fn&ModemFnBatch != 0 {
 			data, err := m.receivePack(0, workMode)
 			if err != nil {
 				return nil, err
@@ -573,7 +573,7 @@ func (m *Modem) receive() ([]File, error) {
 			body.Truncate(int(file.Length))
 		}
 		ret = append(ret, *file)
-		if m.config.fn&ModemFnBatch == 0 {
+		if m.Config.fn&ModemFnBatch == 0 {
 			break
 		}
 	}
