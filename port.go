@@ -17,9 +17,10 @@ var WrongModemType = errors.New("wrong modem type")
 var TooLongFileInfo = errors.New("too long file info")
 var NAKTenTimes = errors.New("NAK*10")
 var FileTooLong = errors.New("file too long")
-var UnknownPack = errors.New("unknown pack")
 var GModeWithWrong = errors.New("g mode with wrong")
 var IOCan = errors.New("send/receive break")
+
+//var UnknownPack = errors.New("unknown pack")
 
 const (
 	XModem modemMode = iota
@@ -61,8 +62,8 @@ func YModemConfig(fn ModemFn) ModemConfig {
 }
 
 type Modem struct {
-	termR io.Writer
-	//termW      io.Reader
+	termR      io.Writer
+	termWW     io.Writer
 	transportR *bufio.Reader
 	transportW io.Writer
 	finishChan chan bool
@@ -94,8 +95,10 @@ func NewModem(config ModemConfig, reader io.Reader, writer io.Writer) (*Modem, i
 			}
 			if atomic.LoadInt64(modemState) == 0 {
 				rw.Write(buf[:n])
+				go func() {
+					modemR.Read(make([]byte, n))
+				}()
 				mrw.Write(buf[:n])
-				modemR.Discard(modemR.Size() - 1)
 			} else {
 				mrw.Write(buf[:n])
 			}
@@ -116,6 +119,9 @@ func NewModem(config ModemConfig, reader io.Reader, writer io.Writer) (*Modem, i
 				writer.Write(cache.Bytes())
 				cache.Reset()
 				atomic.StoreInt64(modemState, 0)
+				go func() {
+					modemR.Read(make([]byte, 1024))
+				}()
 				break
 			default:
 				n, err := wr.Read(buf)
@@ -135,8 +141,8 @@ func NewModem(config ModemConfig, reader io.Reader, writer io.Writer) (*Modem, i
 	}()
 
 	modem := &Modem{
-		termR: rw,
-		//termW:      wr,
+		termR:      rw,
+		termWW:     ww,
 		transportR: modemR,
 		transportW: writer,
 		finishChan: finishChan,
@@ -194,6 +200,7 @@ func (m *Modem) waitWorkMode() (byte, error) {
 			workMode = rBuf[0]
 			break
 		}
+		m.termR.Write(rBuf[:1])
 	}
 	return workMode, nil
 }
@@ -221,14 +228,6 @@ func (m *Modem) sendPack(index uint8, data []byte, mode byte) error {
 		if err != nil {
 			return err
 		}
-		if rBuf[0] == charACK {
-			break
-		} else if rBuf[0] == charNAK {
-			count += 1
-			if count >= 10 {
-				return NAKTenTimes
-			}
-		}
 		if rBuf[0] == charCAN {
 			can += 1
 			if can >= 2 {
@@ -236,6 +235,16 @@ func (m *Modem) sendPack(index uint8, data []byte, mode byte) error {
 			}
 		} else {
 			can = 0
+			if rBuf[0] == charACK {
+				break
+			} else if rBuf[0] == charNAK {
+				count += 1
+				if count >= 10 {
+					return NAKTenTimes
+				}
+			} else {
+				m.termR.Write(rBuf[:1])
+			}
 		}
 	}
 	return nil
@@ -251,14 +260,6 @@ func (m *Modem) sendEOT() error {
 		if err != nil {
 			return err
 		}
-		if rBuf[0] == charACK {
-			break
-		} else if rBuf[0] == charNAK {
-			count += 1
-			if count >= 10 {
-				return NAKTenTimes
-			}
-		}
 		if rBuf[0] == charCAN {
 			can += 1
 			if can >= 2 {
@@ -266,6 +267,16 @@ func (m *Modem) sendEOT() error {
 			}
 		} else {
 			can = 0
+			if rBuf[0] == charACK {
+				break
+			} else if rBuf[0] == charNAK {
+				count += 1
+				if count >= 10 {
+					return NAKTenTimes
+				}
+			} else {
+				m.termR.Write(rBuf[:1])
+			}
 		}
 	}
 	return nil
@@ -283,11 +294,14 @@ func (m *Modem) SendBreak() error {
 // SendBytes send a file.
 func (m *Modem) SendBytes(file io.Reader) error {
 	atomic.StoreInt64(m.state, 1)
+	m.transportR.UnreadByte()
 	err := m.sendBytes(file)
 	if err != nil && err != io.EOF && err != TooLongFileInfo && err != IOCan {
 		m.SendBreak()
 	}
 	m.finishChan <- true
+	// force flush cache
+	m.termWW.Write([]byte{})
 	return err
 }
 
@@ -310,11 +324,14 @@ type File struct {
 // SendList send a list of files, only for YModem.
 func (m *Modem) SendList(files []File) error {
 	atomic.StoreInt64(m.state, 1)
+	m.transportR.UnreadByte()
 	err := m.sendList(files)
 	if err != nil && err != io.EOF && err != TooLongFileInfo {
 		m.SendBreak()
 	}
 	m.finishChan <- true
+	// force flush cache
+	m.termWW.Write([]byte{})
 	return err
 }
 
@@ -501,7 +518,7 @@ func (m *Modem) receivePack(index byte, workMode byte) ([]byte, error) {
 		} else if rBuf[0] == charEOT {
 			return []byte{}, io.EOF
 		} else {
-			return nil, UnknownPack
+			m.termR.Write(rBuf[:1])
 		}
 	}
 }
@@ -535,6 +552,8 @@ func (m *Modem) Receive(fn Receiver) error {
 	atomic.StoreInt64(m.state, 1)
 	err := m.receive(fn)
 	m.finishChan <- true
+	// force flush cache
+	m.termWW.Write([]byte{})
 	return err
 }
 
