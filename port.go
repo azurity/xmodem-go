@@ -398,6 +398,9 @@ func (m *Modem) sendBuffer(file io.Reader, maxsize int64, workMode byte) error {
 	index := 1
 	for {
 		n, err := io.ReadAtLeast(file, buf, len(buf))
+		if err == io.EOF && n == 0 {
+			return m.sendEOT()
+		}
 		if err != nil && err != io.ErrUnexpectedEOF {
 			return err
 		}
@@ -416,6 +419,7 @@ func (m *Modem) sendBuffer(file io.Reader, maxsize int64, workMode byte) error {
 			}
 		}
 		err = m.sendPack(byte(index&0xff), buf, workMode)
+		index += 1
 		if err != nil {
 			return err
 		}

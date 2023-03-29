@@ -65,7 +65,8 @@ func main() {
 		conf = xmodem.YModemConfig(fn)
 	}
 
-	m, _, _ := xmodem.NewModem(conf, os.Stdin, os.Stdout)
+	m, r, _ := xmodem.NewModem(conf, os.Stdin, os.Stdout)
+	go io.ReadAll(r)
 
 	if *recv {
 		err := m.Receive(func(file xmodem.File) {
